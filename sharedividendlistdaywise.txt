@@ -1,0 +1,33 @@
+Declare @rate FLOAT =10.5 --select * from acc_header
+ DECLARE @ACC_ID INT=63
+ SET NOCOUNT ON;       
+DECLARE @CURDATE DATE=CAST(GETDATE() AS DATE)      
+declare @CURFISCALYR DATE=(SELECT DBO.GetFISCALYRSTARTDate(@CURDATE))      
+DECLARE @PREVFISCALYR DATE=(SELECT DBO.GetFISCALYRSTARTDate(DATEADD(DAY,-1,@CURFISCALYR)))      
+DECLARE @PREVFISCALEND DATE=DATEADD(DAY,-1,@CURFISCALYR)      
+
+
+select MemberId,accountNO,ShareNo,shareamount,shareinterest from(
+select RN=ROW_NUMBER()over (partition by ma.mem_id order by ma.mem_id),ma.MemberId,ISNULL(t.AccountNo,'No account')as accountNO,f.ShareNo,f.shareamount,f.shareinterest from(  
+select Mem_ID,SUM(ShareNo)as ShareNo,SUM(ShareAmount)as shareamount,SUM(ShareInterest)as shareinterest from(  
+select mem_id,DATE,(case when Remarks='P' then shareno else -ShareNo end)as shareNO, NoOfDays,    (case when Remarks='p'then ShareAmount else -ShareAmount end) as ShareAmount,   CAST (((case when Remarks='p'then ShareAmount else -ShareAmount end)*NoOfDays*@rate)/(36500) AS FLOAT) as Shareinterest,remarks     from (
+select mem_id,date,Shareno,     DATEDIFF(DAY,case when Date>@PREVFISCALYR THEN DATE ELSE @PREVFISCALYR END,@PREVFISCALEND)+1AS NoOfDays,ShareAmount,     0 as ShareInterest,remarks      from (
+ 
+select ma.mem_id,sharedate as Date,0 as CurrentYear,0 as PreviousYear,shareno, shareno*100 as ShareAmount,active,'P'as Remarks  from memberaccount ma
+ inner join sharepurchase sp on ma.mem_id=sp.membership_id        
+union all        
+select ma.mem_id,ReturnDate AS DATE,0,0,shareno,shareno*100 as ShareAmount,active,'R'as Remarks  from memberaccount ma        
+inner join sharereturn sR on ma.mem_id=sR.membership_id)as t       
+WHERE DATE<=@PREVFISCALEND and shareno<>0 ) As T1 )as T2  
+group by Mem_ID)as f  
+inner join MemberAccount ma on ma.Mem_ID=f.Mem_ID
+--inner join Acc_Mem am on ma.Mem_ID=am.Mem_ID
+inner join Membership m on ma.mem_id=m.Membership_ID
+left join (select am.Mem_ID,a.AccountNo from Account a 
+           inner join acc_mem am on a.AccountNo=am.AccountNo 
+           
+           where a.ACC_ID=@ACC_ID and Status=1)t on ma.Mem_ID=t.Mem_ID
+           
+  where Active=1 and m.ShareNo<>0 --and a.ACC_ID=@ACC_ID --and am.Status=1
+  )as t where RN=1 and ShareNo<>0 --and accountNO not like 'GS%'
+  
